@@ -1,0 +1,20 @@
+{
+  "expo": {
+    "name": "Terra AI",
+    "slug": "terra-ai",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "dark",
+    "scheme": "terraai",
+    "ios": { "supportsTablet": true },
+    "android": {
+      "package": "com.terraai.mobile",
+      "versionCode": 1,
+      "permissions": ["INTERNET"]
+    },
+    "plugins": ["expo-secure-store"],
+    "extra": {
+      "apiUrl": "https://terra-ai.onrender.com"
+    }
+  }
+}

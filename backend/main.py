@@ -149,6 +149,34 @@ async def ai_chat(data: ChatIn, user=Depends(current_user)):
     if r.status_code >= 400: raise HTTPException(r.status_code, "AI provider error: " + r.text[:400])
     return {"reply": r.json()["choices"][0]["message"]["content"]}
 
+@app.get("/api/geocode")
+async def geocode(query: str, user=Depends(current_user)):
+    query = query.strip()
+    if not query or len(query) > 160:
+        raise HTTPException(400, "Enter a place or country name")
+    headers = {"User-Agent": "TerraAI/1.0 (geographic search)"}
+    params = {
+        "q": query,
+        "format": "jsonv2",
+        "addressdetails": 1,
+        "polygon_geojson": 1,
+        "limit": 6,
+        "accept-language": "ru,en"
+    }
+    async with httpx.AsyncClient(timeout=25, headers=headers) as client:
+        response = await client.get("https://nominatim.openstreetmap.org/search", params=params)
+    if response.status_code >= 400:
+        raise HTTPException(502, "Geographic search provider is unavailable")
+    results = response.json()
+    # Prefer a country/admin boundary when the query names a country, while
+    # retaining city and settlement results for ordinary place searches.
+    results.sort(key=lambda item: (
+        0 if item.get("addresstype") == "country" or
+             (item.get("class") == "boundary" and item.get("type") == "administrative") else 1,
+        -float(item.get("importance", 0))
+    ))
+    return {"results": results}
+
 @app.get("/api/weather/tiles/{layer}/{z}/{x}/{y}.png")
 async def weather_tile(layer: str, z: int, x: int, y: int, token: str):
     # Cesium image requests cannot conveniently attach the app's Authorization header,

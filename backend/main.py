@@ -145,12 +145,14 @@ async def update_object(object_id: str, data: EarthObjectIn, user=Depends(curren
         raise HTTPException(400, "Invalid object id")
     doc = data.model_dump()
     doc["updated_at"] = datetime.now(timezone.utc)
+    # Older records may have been stored with a string id; support both
+    # representations while always enforcing per-user ownership.
     result = await db.earth_objects.update_one(
-        {"_id": oid, "user_id": user["_id"]},
+        {"user_id": user["_id"], "$or": [{"_id": oid}, {"_id": object_id}]},
         {"$set": doc}
     )
     if result.matched_count == 0:
-        raise HTTPException(404, "Object not found")
+        raise HTTPException(404, "Object not found for this account")
     return {"ok": True}
 
 @app.delete("/api/earth/objects")

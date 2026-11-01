@@ -14,7 +14,7 @@
     },
     "plugins": ["expo-secure-store"],
     "extra": {
-      "apiUrl": "https://terra-ai.onrender.com"
+      "apiUrl": "https://terra-ai-8kky.onrender.com"
     }
   }
 }

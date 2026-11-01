@@ -228,6 +228,18 @@ async def geocode(query: str, user=Depends(current_user)):
             item["wikidata"] = qid
     return {"results": results}
 
+@app.get("/api/flag-image")
+async def flag_image(url: str, user=Depends(current_user)):
+    from urllib.parse import urlparse
+    parsed = urlparse(url)
+    if parsed.scheme != "https" or parsed.hostname not in {"commons.wikimedia.org", "upload.wikimedia.org", "flagcdn.com"}:
+        raise HTTPException(400, "Unsupported flag image source")
+    async with httpx.AsyncClient(timeout=25, follow_redirects=True, headers={"User-Agent": "TerraAI/1.0"}) as client:
+        upstream = await client.get(url)
+    if upstream.status_code >= 400 or not upstream.headers.get("content-type", "").startswith("image/"):
+        raise HTTPException(502, "Flag image could not be loaded")
+    return Response(content=upstream.content, media_type=upstream.headers.get("content-type", "image/png"), headers={"Cache-Control": "public, max-age=86400"})
+
 @app.get("/api/weather/tiles/{layer}/{z}/{x}/{y}.png")
 async def weather_tile(layer: str, z: int, x: int, y: int, token: str):
     # Cesium image requests cannot conveniently attach the app's Authorization header,

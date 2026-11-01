@@ -3,7 +3,7 @@ import { ActivityIndicator, Alert, KeyboardAvoidingView, Platform, SafeAreaView,
 import * as SecureStore from "expo-secure-store";
 import { WebView } from "react-native-webview";
 
-const API = "https://terra-ai.onrender.com";
+const API = "https://terra-ai-8kky.onrender.com";
 type User = { id: string; nickname: string; email: string };
 type Page = "earth" | "assistant" | "weather";
 type Message = { role: "user" | "bot"; text: string };

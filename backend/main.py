@@ -149,6 +149,30 @@ async def ai_chat(data: ChatIn, user=Depends(current_user)):
     if r.status_code >= 400: raise HTTPException(r.status_code, "AI provider error: " + r.text[:400])
     return {"reply": r.json()["choices"][0]["message"]["content"]}
 
+@app.get("/api/weather/tiles/{layer}/{z}/{x}/{y}.png")
+async def weather_tile(layer: str, z: int, x: int, y: int, token: str):
+    # Cesium image requests cannot conveniently attach the app's Authorization header,
+    # so validate the existing short-lived app JWT passed as a query parameter.
+    allowed_layers = {"temp_new", "clouds_new", "precipitation_new", "wind_new", "pressure_new"}
+    if layer not in allowed_layers or not (0 <= z <= 18) or x < 0 or y < 0 or x >= 2 ** z or y >= 2 ** z:
+        raise HTTPException(400, "Invalid weather tile")
+    try:
+        payload = jwt.decode(token, SECRET, algorithms=[ALGORITHM])
+        uid = payload.get("sub")
+    except JWTError:
+        raise HTTPException(401, "Session expired")
+    if not uid or db is None or not await db.users.find_one({"_id": uid}, {"_id": 1}):
+        raise HTTPException(401, "Please sign in")
+    key = os.getenv("OPENWEATHER_API_KEY")
+    if not key:
+        raise HTTPException(503, "OPENWEATHER_API_KEY is not configured")
+    url = f"https://tile.openweathermap.org/map/{layer}/{z}/{x}/{y}.png"
+    async with httpx.AsyncClient(timeout=20) as client:
+        upstream = await client.get(url, params={"appid": key})
+    if upstream.status_code >= 400:
+        raise HTTPException(502, "OpenWeather tile service error")
+    return Response(content=upstream.content, media_type="image/png", headers={"Cache-Control": "public, max-age=300"})
+
 @app.get("/api/weather")
 async def weather(place: str, user=Depends(current_user)):
     key = os.getenv("OPENWEATHER_API_KEY")

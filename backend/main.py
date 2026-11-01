@@ -11,6 +11,8 @@ from fastapi.staticfiles import StaticFiles
 from jose import jwt, JWTError
 from passlib.context import CryptContext
 from motor.motor_asyncio import AsyncIOMotorClient
+from bson import ObjectId
+from bson.errors import InvalidId
 from pydantic import BaseModel, EmailStr, Field
 
 load_dotenv()
@@ -134,6 +136,22 @@ async def create_object(data: EarthObjectIn, user=Depends(current_user)):
     doc.update({"user_id": user["_id"], "created_at": datetime.now(timezone.utc)})
     result = await db.earth_objects.insert_one(doc)
     return {"id": str(result.inserted_id), "ok": True}
+
+@app.put("/api/earth/objects/{object_id}")
+async def update_object(object_id: str, data: EarthObjectIn, user=Depends(current_user)):
+    try:
+        oid = ObjectId(object_id)
+    except InvalidId:
+        raise HTTPException(400, "Invalid object id")
+    doc = data.model_dump()
+    doc["updated_at"] = datetime.now(timezone.utc)
+    result = await db.earth_objects.update_one(
+        {"_id": oid, "user_id": user["_id"]},
+        {"$set": doc}
+    )
+    if result.matched_count == 0:
+        raise HTTPException(404, "Object not found")
+    return {"ok": True}
 
 @app.delete("/api/earth/objects")
 async def clear_objects(user=Depends(current_user)):

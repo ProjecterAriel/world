@@ -229,7 +229,14 @@ async def geocode(query: str, user=Depends(current_user)):
     return {"results": results}
 
 @app.get("/api/flag-image")
-async def flag_image(url: str, user=Depends(current_user)):
+async def flag_image(url: str, token: str):
+    try:
+        payload = jwt.decode(token, SECRET, algorithms=[ALGORITHM])
+        uid = payload.get("sub")
+    except JWTError:
+        raise HTTPException(401, "Session expired")
+    if not uid or db is None or not await db.users.find_one({"_id": uid}, {"_id": 1}):
+        raise HTTPException(401, "Please sign in")
     from urllib.parse import urlparse
     parsed = urlparse(url)
     if parsed.scheme != "https" or parsed.hostname not in {"commons.wikimedia.org", "upload.wikimedia.org", "flagcdn.com"}:

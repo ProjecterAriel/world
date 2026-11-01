@@ -178,6 +178,8 @@ async def geocode(query: str, user=Depends(current_user)):
         "format": "jsonv2",
         "addressdetails": 1,
         "polygon_geojson": 1,
+        "extratags": 1,
+        "namedetails": 1,
         "limit": 6,
         "accept-language": "ru,en"
     }
@@ -193,6 +195,35 @@ async def geocode(query: str, user=Depends(current_user)):
              (item.get("class") == "boundary" and item.get("type") == "administrative") else 1,
         -float(item.get("importance", 0))
     ))
+    # Resolve the flag of the exact searched administrative entity (country,
+    # region, island, etc.) through its own Wikidata item. Never substitute
+    # the sovereign country's flag for a region that has no regional flag.
+    async with httpx.AsyncClient(timeout=12, headers={"User-Agent": "TerraAI/1.0 (geographic flag lookup)"}) as client:
+        for item in results:
+            tags = item.get("extratags") or {}
+            flag = tags.get("flag") or tags.get("flag_image")
+            qid = tags.get("wikidata")
+            if qid and qid.startswith("Q"):
+                try:
+                    entity_response = await client.get(
+                        "https://www.wikidata.org/w/api.php",
+                        params={"action": "wbgetentities", "ids": qid, "props": "claims", "format": "json"}
+                    )
+                    entity_response.raise_for_status()
+                    entity = entity_response.json().get("entities", {}).get(qid, {})
+                    claims = entity.get("claims", {})
+                    statements = claims.get("P41", [])
+                    if statements:
+                        filename = statements[0]["mainsnak"]["datavalue"]["value"]
+                        from urllib.parse import quote
+                        flag = "https://commons.wikimedia.org/wiki/Special:FilePath/" + quote(filename.replace(" ", "_")) + "?width=1200"
+                except Exception:
+                    pass
+            if flag and not str(flag).startswith(("https://", "http://")):
+                from urllib.parse import quote
+                flag = "https://commons.wikimedia.org/wiki/Special:FilePath/" + quote(str(flag).replace(" ", "_")) + "?width=1200"
+            item["flag_url"] = flag if flag and str(flag).startswith("https://") else None
+            item["wikidata"] = qid
     return {"results": results}
 
 @app.get("/api/weather/tiles/{layer}/{z}/{x}/{y}.png")

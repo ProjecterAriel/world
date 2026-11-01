@@ -229,23 +229,40 @@ async def geocode(query: str, user=Depends(current_user)):
     return {"results": results}
 
 @app.get("/api/flag-image")
-async def flag_image(url: str, token: str):
-    try:
-        payload = jwt.decode(token, SECRET, algorithms=[ALGORITHM])
-        uid = payload.get("sub")
-    except JWTError:
-        raise HTTPException(401, "Session expired")
-    if not uid or db is None or not await db.users.find_one({"_id": uid}, {"_id": 1}):
-        raise HTTPException(401, "Please sign in")
+async def flag_image(url: str, user=Depends(current_user)):
     from urllib.parse import urlparse
     parsed = urlparse(url)
-    if parsed.scheme != "https" or parsed.hostname not in {"commons.wikimedia.org", "upload.wikimedia.org", "flagcdn.com"}:
+    allowed_hosts = {"commons.wikimedia.org", "upload.wikimedia.org", "flagcdn.com"}
+    if parsed.scheme != "https" or parsed.hostname not in allowed_hosts:
         raise HTTPException(400, "Unsupported flag image source")
-    async with httpx.AsyncClient(timeout=25, follow_redirects=True, headers={"User-Agent": "TerraAI/1.0"}) as client:
-        upstream = await client.get(url)
-    if upstream.status_code >= 400 or not upstream.headers.get("content-type", "").startswith("image/"):
-        raise HTTPException(502, "Flag image could not be loaded")
-    return Response(content=upstream.content, media_type=upstream.headers.get("content-type", "image/png"), headers={"Cache-Control": "public, max-age=86400"})
+    headers = {
+        "User-Agent": "TerraAI/1.0 (flag image proxy; https://terra-ai-8kky.onrender.com)",
+        "Accept": "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8",
+        "Referer": "https://commons.wikimedia.org/"
+    }
+    try:
+        async with httpx.AsyncClient(timeout=30, follow_redirects=True, headers=headers) as client:
+            upstream = await client.get(url)
+    except httpx.HTTPError as exc:
+        raise HTTPException(502, "Flag provider connection failed: " + type(exc).__name__)
+    content_type = upstream.headers.get("content-type", "").split(";")[0].strip().lower()
+    body = upstream.content
+    # Wikimedia sometimes serves SVG with a generic content type. Detect the
+    # actual SVG document safely rather than returning a blank image.
+    prefix = body[:512].lstrip().lower()
+    if content_type in {"text/xml", "application/xml", "application/octet-stream", "text/plain"} and (prefix.startswith(b"<svg") or b"<svg" in prefix):
+        content_type = "image/svg+xml"
+    if upstream.status_code >= 400:
+        raise HTTPException(502, f"Flag provider returned HTTP {upstream.status_code}")
+    if not content_type.startswith("image/"):
+        raise HTTPException(502, f"Flag provider returned unsupported content type: {content_type or 'unknown'}")
+    if not body:
+        raise HTTPException(502, "Flag provider returned an empty image")
+    return Response(
+        content=body,
+        media_type=content_type,
+        headers={"Cache-Control": "public, max-age=86400", "X-Content-Type-Options": "nosniff"}
+    )
 
 @app.get("/api/weather/tiles/{layer}/{z}/{x}/{y}.png")
 async def weather_tile(layer: str, z: int, x: int, y: int, token: str):
